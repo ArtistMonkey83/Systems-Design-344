@@ -1,10 +1,11 @@
 // Include the Device header
-#include "tm4c123gh6pn.h"
+#include "tm4c123gh6pm.h"
 
 // You may define user-friendly macros here, as needed.
 #define RS 1	// 0x01, PB0
 #define RW 2	// 0x02, PB1
 #define EN 4	// 0x04, PB2
+#define PB 0x02
 
 // These are thefunction signatures of the "device drivers".
 // You will need to implement them in detail below, after the main() function.
@@ -22,16 +23,16 @@ int main(){
 	// Clear the LCD screen
 		LCD4Bits_Cmd(0x1);		//0x01 clears the display
 	// Set the cursor to the beginning of the first line
-		LCD4Bits_Cmd(0x0); // PB0 == Register Select 0: Command Register 1: Data Registers (text)
+		LCD4Bits_Cmd(0x80); // PB0 == Register Select 0: Command Register 1: Data Registers (text)
 	// Allow some delay, so the slow LCD will catch up with the fast MCU.
 	delay_milli(500);
 	// Test the LCD by sending a character.		b7 b6 b5 b4 b3 b2 b1 b0
-			LCD_Write4Bits(0x90,0x7);		//        1  0  0  1  0  1  1  1  == 0x97  == "A"
+			LCD4Bits_Data('1');		//        1  0  0  1  0  1  1  1  == 0x97  == "A"
 																	//					LCD Data  | LCD Control	
 	// Allow some delay, so the slow LCD will catch up with the fast MCU.
 	delay_milli(500);
 		// Test the LCD by sending a character.		b7 b6 b5 b4 b3 b2 b1 b0
-			LCD_Write4Bits(0x90,0x7);		//          1  0  0  1  0  1  1  1  == 0x97  == "A"
+			LCD4Bits_Data('a');		//          1  0  0  1  0  1  1  1  == 0x97  == "A"
 																	//					LCD Data  | LCD Control
 	// Allow some delay, so the slow LCD will catch up with the fast MCU.
 	delay_milli(500);
@@ -40,13 +41,13 @@ int main(){
 
 void LCD_4Bits_Init(void){  //Can initialize both PA & PB!
 		// Activate clk to PB							b7 b6 b5 b4 b3 b2 b1 b0
-				SYSCTL_RCGC2_GPIOB = ; //		
+				SYSCTL_RCGCGPIO_R = PB; //		
 		// Define the directions on PB pins
-				GPIO_PORTB_DIR_R = ; // output: 1 & input: 0
+				GPIO_PORTB_DIR_R = 0xff; // output: 1 & input: 0
 		// Enable the pins of PB
-				GPIO_PORTB_DEN_R =0x1 ; // I/o enabled: 1 & I/o NOT enabled: 0
+				GPIO_PORTB_DEN_R =0xFF ; // I/o enabled: 1 & I/o NOT enabled: 0
 		// 4-bit data, 2 lines, 5*7 fonts
-				LCD4Bits_Cmd(0x38); 		// b7 b6 b5 b4 b3 b2 b1 b0
+				LCD4Bits_Cmd(0x28); 		// b7 b6 b5 b4 b3 b2 b1 b0
 																// 0  0  1  1  1  0  0  0 ==
 		// increment the cursor automatically
 				LCD4Bits_Cmd(0x06); 		// b7 b6 b5 b4 b3 b2 b1 b0
@@ -64,29 +65,46 @@ void LCD_Write4Bits(unsigned char data, unsigned char control){
 			unsigned char cmd_upper = data & 0xf0;		// b7 b6 b5 b4 b3 b2 b1 b0
 																								// 1  1  1  1  0  0  0  0 == 0xf0 (anding with upper 4-bits)
 	
-			unsigned char cmd_lower = data & 0x0f;		// b7 b6 b5 b4 b3 b2 b1 b0
+	// Extract the lower 4-bit data. The lower 4-bit are control signals to thecontrol pins of the LCD.
+			control &= 0x0f;		// b7 b6 b5 b4 b3 b2 b1 b0
 																								// 0  0  0  0  1  1  1  1 == 0x0f (anding with lower 4-bits)
+			//cmd_lower << 4; //Bit shift by 4 because first 4 bits are ALWAYS CONTROL // b7 b6 b5 b4 b3 b2 b1 b0
+																																							 // 0  0  0  0  0  0  0  1 ==
 	
-	// Extract the lower 4-bit data. The lower 4-bit are control signals to thecontrol pins of the LCD. 
 	// send both data and the control signals  to LCD through the GPIODATA register.
+			GPIO_PORTB_DATA_R = cmd_upper| control;
+
 	// send both data and the control signals  to LCD through the GPIODATA register. Secure the sent signals by EN.
+			GPIO_PORTB_DATA_R = cmd_upper| control|0x04; // b7 b6 b5 b4 b3 b2 b1 b0
+																// 1  1  1  1  0  0  0  1 ==
+																// RS 0, rW 0, E 1
 	delay_micro(3);		// Allow some delay
-	// Set back to the data without EN.
+	// Set back to the data without EN. 
+			GPIO_PORTB_DATA_R = 0x00; 
 	
 }
 
-void LCD4Bits_Cmd(unsigned char command){
-	// Write theupper 4 bits. the control bit RS is 0 because this is a command not an actual text data.
+void LCD4Bits_Cmd(unsigned char command){ //set command
+	// Write the upper 4 bits. the control bit RS is 0 because this is a command not an actual text data.
+		LCD_Write4Bits(command & 0xf0,0); 
+
 	// Write the lower 4 bits of the command.
+		LCD_Write4Bits(command << 4, 0);
+	
 	if(command<4)
 		delay_milli(2);
 	else
 		delay_micro(37);
 }
 
-void LCD4Bits_Data(unsigned char data){
+void LCD4Bits_Data(unsigned char data){ //set data
 	// the control bit RS is 1 because this is to select the data register.
+		LCD_Write4Bits(data & 0xf0,0x01);
+
 	// the lower 4 bits of the text data.
+	LCD_Write4Bits(data << 4, 0x01);
+	
+	
 	delay_micro(37);
 }
 
